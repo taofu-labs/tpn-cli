@@ -7,13 +7,13 @@
 # --------------------
 # Configuration
 # --------------------
-BASE_URLS="http://161.35.91.172:3000"
+BASE_URLS="http://161.35.91.172:3000, http://88.204.136.221:3000, http://88.204.136.220:3000"
 TIMEOUT=${TIMEOUT:-60}
 TMP_DIR=${TMPDIR:-/tmp}
 INTERFACE_NAME="tpn_config"
 TMP_CONF=""
 IP_SERVICE="ipv4.icanhazip.com"
-CURRENT_VERSION='v0.0.11'
+CURRENT_VERSION='v0.0.12'
 REPO_URL="https://raw.githubusercontent.com/taofu-labs/tpn-cli"
 DEBUG=${DEBUG:-false}
 
@@ -117,7 +117,10 @@ fi
 usage() {
   cat <<EOF
 TPN $CURRENT_VERSION - CLI for creating VPN connections via the Tensor Private Network (TPN)
-Usage: tpn <command> [options]
+Usage: tpn [--validator_urls <urls>] <command> [options]
+
+Global Options:
+  --validator_urls <urls>           override default API endpoints (comma-separated)
 
 Commands:
   countries [code|name]            list country codes or names
@@ -140,6 +143,7 @@ Options for connect:
 Examples:
   tpn countries
   tpn connect US
+  tpn --validator_urls "http://custom1:3000,http://custom2:3000" connect US
   tpn status
   tpn disconnect
   tpn update
@@ -504,6 +508,29 @@ uninstall() {
 # Main command dispatch
 # --------------------
 [ "$#" -ge 1 ] || usage
+
+# Parse global --validator_urls option before command processing
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --validator_urls)
+      if [ -n "$2" ]; then
+        BASE_URLS="$2"
+        shift 2
+      else
+        red "Error: --validator_urls requires a value" >&2
+        usage
+      fi
+      ;;
+    --validator_urls=*)
+      BASE_URLS="${1#*=}"
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
 cmd=$1; shift
 
 trap 'printf "\nAborted by user.\n"; exit 130' INT
