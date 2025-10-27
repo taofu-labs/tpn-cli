@@ -38,6 +38,9 @@ done
 
 fail=0
 
+# Set up trap to handle Ctrl+C
+trap 'printf "\nTest suite interrupted by user. Cleaning up...\n"; cleanup; exit 130' INT
+
 # Arrays to track test results
 PASSED_TESTS=""
 FAILED_TESTS=""
@@ -92,7 +95,7 @@ cleanup() {
   read ans || ans="Y"
   case "$ans" in 
     [Nn]*) printf "Keeping test output files.\n";;
-    *) rm -f countries.out countries_code.out status.out connect_missing.out disconnect.out connect_any.out disconnect_any.out help.out connect_*.out
+    *) rm -f countries.out countries_code.out status.out connect_missing.out disconnect.out connect_any.out disconnect_any.out help.out connect_*.out call.log
        printf "Test output files cleaned up.\n";;
   esac
 }

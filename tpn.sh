@@ -7,15 +7,21 @@
 # --------------------
 # Configuration
 # --------------------
-BASE_URLS="http://161.35.91.172:3000, http://88.204.136.221:3000, http://88.204.136.220:3000"
+BASE_URLS="http://161.35.91.172:3000, http://46.16.144.134:3000, http://88.204.136.220:3000, http://34.130.144.244:3000/"
 TIMEOUT=${TIMEOUT:-60}
 TMP_DIR=${TMPDIR:-/tmp}
 INTERFACE_NAME="tpn_config"
 TMP_CONF=""
 IP_SERVICE="ipv4.icanhazip.com"
-CURRENT_VERSION='v0.0.12'
+CURRENT_VERSION='v0.1.0'
 REPO_URL="https://raw.githubusercontent.com/taofu-labs/tpn-cli"
 DEBUG=${DEBUG:-false}
+
+# Override BASE_URLS if environment variable is set
+if [ -n "$TPN_VALIDATOR_URLS_OVERRIDE" ]; then
+  BASE_URLS="$TPN_VALIDATOR_URLS_OVERRIDE"
+  grey "Overriding default validators with $TPN_VALIDATOR_URLS_OVERRIDE"
+fi
 
 # --------------------
 # Helpers
@@ -122,6 +128,9 @@ Usage: tpn [--validator_urls <urls>] <command> [options]
 Global Options:
   --validator_urls <urls>           override default API endpoints (comma-separated)
 
+Environment Variables:
+  TPN_VALIDATOR_URLS_OVERRIDE       override default API endpoints (comma-separated)
+
 Commands:
   countries [code|name]            list country codes or names
   connect <code> [opts]            fetch & bring up WireGuard interface
@@ -144,6 +153,7 @@ Examples:
   tpn countries
   tpn connect US
   tpn --validator_urls "http://custom1:3000,http://custom2:3000" connect US
+  TPN_VALIDATOR_URLS_OVERRIDE="http://custom1:3000,http://custom2:3000" tpn connect US
   tpn status
   tpn disconnect
   tpn update
@@ -161,8 +171,11 @@ EOF
 call_url() {
   url="$1"
   timeout="${2:-$TIMEOUT}"
-  # If DEBUG=true log out url to call
-  curl --retry 3 --retry-delay 5 --max-time "$timeout" -s "$url"
+  local cmd="curl --retry 5 --retry-delay 5 --max-time $timeout -s \"$url\""
+  [ "$DEBUG" = true ] && echo "$(date) - $cmd" >> ./calls.out
+  resp=$(eval "${cmd[@]}")
+  [ "$DEBUG" = true ] && echo "$(date) - response - $resp" >> ./calls.out
+  printf "%s" "$resp"
 }
 
 
@@ -171,12 +184,20 @@ call_url() {
 # --------------------
 api_request() {
   path="$1"
+  # Save current IFS and set to comma for proper URL parsing
+  old_ifs="$IFS"
+  IFS=","
   for base in $BASE_URLS; do
+    # Restore IFS and trim whitespace from base URL
+    IFS="$old_ifs"
+    base=$(printf "%s" "$base" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     resp=$(call_url "$base$path") && {
       printf "%s" "$resp"
       return 0
     }
+    IFS=","
   done
+  IFS="$old_ifs"
   red "Error: all endpoints failed for $path" >&2
   exit 1
 }
@@ -192,16 +213,19 @@ current_ip() {
 # List available countries
 # --------------------
 countries() {
-  fmt="name"
+  fmt="code"
   if [ "$1" = "name" ] || [ "$1" = "code" ]; then
     fmt="$1"
     shift
   fi
   prefix="$1"
 
-  [ "$DEBUG" = true ] && grey "API call: /api/config/countries?format=$fmt"
+  [ "$DEBUG" = true ] && grey "API call: /api/lease/countries?type=$fmt"
 
-  result=$(api_request "/api/config/countries?format=$fmt")
+  result=$(api_request "/api/lease/countries?type=$fmt")
+
+  local newlined_result=$(printf "%s" "$result" | tr ',' '\n')
+
   printf "%s\n" "$result"
 }
 
@@ -209,7 +233,7 @@ countries() {
 # Connect to TPN node
 # --------------------
 connect() {
-  lease=10; timeout_override=""; skip_confirm=0; dry=0; verbose=0; country=""
+  lease=10; timeout_override=""; skip_confirm=0; dry=0; verbose=0; country="any"
 
   # If DEBUG=true set verbose to 1
   [ "$DEBUG" = true ] && verbose=1
@@ -263,7 +287,10 @@ connect() {
   TMP_CONF="$cfg"
   grey "Connecting you to a TPN node..."
 
-  call_path="/api/config/new?format=text&geo=$country&lease_minutes=$lease"
+  # Calculate lease minutes into seconds
+  lease_seconds=$(( lease * 60 ))
+
+  call_path="/api/lease/new?format=text&geo=$country&lease_seconds=$lease_seconds"
   [ $verbose -eq 1 ] && grey "API call: $call_path"
   api_request "$call_path" > "$TMP_CONF"
 
@@ -515,6 +542,7 @@ while [ $# -gt 0 ]; do
     --validator_urls)
       if [ -n "$2" ]; then
         BASE_URLS="$2"
+        grey "Overriding default validators with $2"
         shift 2
       else
         red "Error: --validator_urls requires a value" >&2
@@ -523,6 +551,7 @@ while [ $# -gt 0 ]; do
       ;;
     --validator_urls=*)
       BASE_URLS="${1#*=}"
+      grey "Overriding default validators with ${1#*=}"
       shift
       ;;
     *)
