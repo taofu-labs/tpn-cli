@@ -13,7 +13,7 @@ TMP_DIR=${TMPDIR:-/tmp}
 INTERFACE_NAME="tpn_config"
 TMP_CONF=""
 IP_SERVICE="ipv4.icanhazip.com"
-CURRENT_VERSION='v0.1.1'
+CURRENT_VERSION='v0.1.2'
 REPO_URL="https://raw.githubusercontent.com/taofu-labs/tpn-cli"
 DEBUG=${DEBUG:-false}
 
@@ -421,6 +421,31 @@ disconnect() {
     rm -f "$cfg"
   fi
 
+  # Manually force the DNS back to default if dns is down
+  can_dig_google=$(dig google.com +time=2 +tries=1 +short)
+  can_dig_tpn=$(dig tpn.taofu.xyz +time=2 +tries=1 +short)
+
+  # If both fails, reset DNS settings
+  if [ -z "$can_dig_google" ] && [ -z "$can_dig_tpn" ]; then
+
+    os=$(uname)
+
+    # On macOS, set DNS servers to Empty for all network services
+    if [ "$os" = "Darwin" ]; then
+
+      grey "DNS appears to be down. Resetting DNS settings to default..."
+      visudo
+      for service in $(networksetup -listallnetworkservices | grep -v '^An asterisk'); do
+        sudo networksetup -setdnsservers "$service" Empty
+      done
+
+    # On others, warn
+    else
+      red "DNS appears to be down. Please check your DNS settings."
+    fi
+
+  fi
+
   IP_AFTER_DISCONNECT="$(current_ip)"
   green "IP changed back from $IP_BEFORE_DISCONNECT to $IP_AFTER_DISCONNECT"
 }
@@ -429,26 +454,57 @@ disconnect() {
 # Add sudoers entry
 # --------------------
 visudo() {
+
+  # Get username
   if [ -n "$USER" ]; then
     user="$USER"
   else
     user=$(id -un)
   fi
   file="/etc/sudoers.d/tpn"
-  grey "Creating sudoers entry for wg and wg-quick..."
-  [ -f "$file" ] && sudo rm -f "$file"
 
   # Find binary locations
   WG_QUICK_BIN=$(command -v wg-quick 2>/dev/null)
   WG_BIN=$(command -v wg 2>/dev/null)
+  OSX_DNS_BIN=$(command -v networksetup 2>/dev/null)
+  OSX_DNS_RESET_COMMAND="$OSX_DNS_BIN -setdnsservers * Empty"
 
-  # Add sudoers entry for wg and wg-quick (all parameters allowed)
-  printf "%s ALL=(ALL) NOPASSWD: %s, %s\n" \
+  # If visudo file contains both commands, exit early
+  allowed_sudo=$(sudo -kl 2>/dev/null)
+  wg_allowed=$(echo "$allowed_sudo" | grep -q "$WG_QUICK_BIN" && echo "yes" || echo "no")
+  dns_allowed=$(echo "$allowed_sudo" | grep -q "$OSX_DNS_BIN" && echo "yes" || echo "no")
+  grey "Current visudo settings: wg-quick allowed: $wg_allowed, DNS reset allowed: $dns_allowed"
+  if [ "$wg_allowed" = "yes" ] && { [ "$(uname)" != "Darwin" ] || [ "$dns_allowed" = "yes" ]; }; then
+    grey "Sudoers entry for wg-quick and DNS reset already exists. Exiting."
+    return
+  else
+    grey "Creating sudoers entry for wg and wg-quick..."
+  fi
+
+  [ -f "$file" ] && sudo rm -f "$file"
+
+
+  # If wg-quick is not in the visudo file, add it
+  if ! grep -q "$WG_QUICK_BIN" "$file" 2>/dev/null; then
+    grey "wg-quick not found in sudoers file, adding..."
+    printf "%s ALL=(ALL) NOPASSWD: %s, %s\n" \
     "$user" "$WG_QUICK_BIN" "$WG_BIN" \
     | sudo tee "$file" >/dev/null
+  fi
+
+  # If on macOS and DNS command is not in visudo file, add it
+  if [ "$(uname)" = "Darwin" ] && ! grep -q "networksetup" "$file" 2>/dev/null; then
+    grey "macOS DNS reset command not found in sudoers file, adding..."
+    printf "%s ALL=(ALL) NOPASSWD: %s\n" \
+    "$user" "$OSX_DNS_RESET_COMMAND" \
+    | sudo tee -a "$file" >/dev/null
+  fi
+
+  # Set correct permissions
   sudo chmod 440 "$file"
   grey "Added sudoers entry for $user: $file"
   green "You can now run TPN without sudo password."
+
 }
 
 # --------------------
