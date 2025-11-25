@@ -6,15 +6,17 @@ trap 'printf "\nAborted by user.\n"; exit 130' INT
 # Set the binary folder
 BINARY_FOLDER="/usr/local/bin"
 BINARY_FILE="$BINARY_FOLDER/tpn"
+TEMP_DIR=$(mktemp -d -t tpn_update_XXXXXX)
 
 # Download the current executable
 REPO_URL="https://raw.githubusercontent.com/taofu-labs/tpn-cli"
 FILE_URL="$REPO_URL/main/tpn.sh"
 
 # Download the file
-printf '[ 1 ] Downloading latest TPN CLI version from GitHub\n'
-rm -f "$BINARY_FILE"  # Remove any existing file
-curl -fsSL "$FILE_URL" | tee "$BINARY_FILE" > /dev/null
+printf 'Downloading latest TPN CLI version from GitHub\n'
+TEMP_FILE="$TEMP_DIR/tpn.sh"
+curl -fsSL "$FILE_URL" -o "$TEMP_FILE"
+cp "$TEMP_FILE" "$BINARY_FILE"
 
 # Get the current owner (macOS-compatible)
 OWNER=$(stat -f '%Su' "$BINARY_FILE")
@@ -39,3 +41,7 @@ if [ ! -x "$BINARY_FILE" ]; then
   printf 'Making %s executable\n' "$BINARY_FILE"
   chmod +x "$BINARY_FILE"
 fi
+
+# Clean up
+rm -rf "$TEMP_DIR"
+printf 'TPN CLI tool updated successfully to the latest version.\n'
