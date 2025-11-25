@@ -13,7 +13,7 @@ TMP_DIR=${TMPDIR:-/tmp}
 INTERFACE_NAME="tpn_config"
 TMP_CONF=""
 IP_SERVICE="ipv4.icanhazip.com"
-CURRENT_VERSION='v0.1.0'
+CURRENT_VERSION='v0.1.1'
 REPO_URL="https://raw.githubusercontent.com/taofu-labs/tpn-cli"
 DEBUG=${DEBUG:-false}
 
@@ -250,12 +250,31 @@ connect() {
       -v|--verbose) verbose=1; shift;;
       --) shift; break;;
       -*) red "Unknown option: $1" >&2; usage;;
-      *) [ -z "$country" ] && country="$1"; shift;;
+      *)
+        if [ "$country" = "any" ]; then
+          country="$1"
+          shift
+        else
+          red "Unknown option: $1" >&2
+          usage
+        fi
+        ;;
     esac
   done
 
+  # If country is still "any" and there's a positional argument, use it as country
+  if [ "$country" = "any" ] && [ $# -gt 0 ]; then
+    country="$1"
+    shift
+  fi
+
+  if [ $# -gt 0 ]; then
+    red "Unknown option: $1" >&2
+    usage
+  fi
+
   # Print parsed values if verbose
-  [ $verbose -eq 1 ] && printf '%s\n' "Called with: lease=$lease, timeout=$timeout_override, skip_confirm=$skip_confirm, dry=$dry, verbose=$verbose"
+  [ $verbose -eq 1 ] && printf '%s\n' "Called with: lease=$lease, country=$country, timeout=$timeout_override, skip_confirm=$skip_confirm, dry=$dry, verbose=$verbose"
 
   # Validate input
   [ -n "$timeout_override" ] && TIMEOUT="$timeout_override"
