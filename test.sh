@@ -26,7 +26,7 @@ red() {
 }
 
 # Path to tpn.sh (adjust if needed)
-TPN="sh ./tpn.sh"
+TPN="DEBUG=true RETRY=1 TIMEOUT=30 sh ./tpn.sh"
 
 # Parse --fail-fast argument
 FAIL_FAST=0
@@ -95,7 +95,7 @@ cleanup() {
   read ans || ans="Y"
   case "$ans" in 
     [Nn]*) printf "Keeping test output files.\n";;
-    *) rm -f countries.out countries_code.out status.out connect_missing.out disconnect.out connect_any.out disconnect_any.out help.out connect_*.out call.log
+    *) rm -f countries.out countries_code.out status.out connect_missing.out disconnect.out connect_any.out disconnect_any.out help.out connect_*.out call.log calls.out
        printf "Test output files cleaned up.\n";;
   esac
 }
@@ -116,6 +116,11 @@ fail_exit() {
 
 # Clean up any existing .out files before starting
 cleanup
+
+# Start message
+printf 'Starting TPN CLI test suite...\n'
+printf 'Note that you can track the api calls in the calls.out file.\n'
+printf '===============================\n'
 
 # Test that countries command returns a list with minimum length
 printf '\nTesting: countries (default)\n'
@@ -156,33 +161,6 @@ else
   fail_exit
 fi
 
-# Test actual VPN connection to any available server
-printf '\nTesting: connect to 'any' (real connection)\n'
-run_and_log "$TPN connect -f any | tee connect_any.out"
-if grep -qi "IP address changed" connect_any.out && ! grep -qi "error" connect_any.out; then
-  print_green "PASS: connect any (real connection)"
-  add_test_result "connect any" "pass"
-  sleep 10
-else
-  print_red "FAIL: connect any (real connection)"
-  add_test_result "connect any" "fail"
-  fail=1
-  fail_exit
-fi
-
-# Test disconnecting from the VPN and restoring original IP
-printf '\nTesting: disconnect after connect (real disconnect)\n'
-run_and_log "$TPN disconnect | tee disconnect_any.out"
-if grep -qi "IP changed back" disconnect_any.out && ! grep -qi "error" disconnect_any.out; then
-  print_green "PASS: disconnect after connect (real disconnect)"
-  add_test_result "disconnect after connect" "pass"
-else
-  print_red "FAIL: disconnect after connect (real disconnect)"
-  add_test_result "disconnect after connect" "fail"
-  fail=1
-  fail_exit
-fi
-
 # Test that help command displays usage information
 printf '\nTesting: help\n'
 run_and_log "$TPN help > help.out 2>&1"
@@ -210,6 +188,13 @@ countries=$(sed 's/\[//g; s/\]//g; s/"//g' countries_code.out | tr ',' '\n' | se
 for country in $countries; do
   # Skip empty lines
   [ -z "$country" ] && continue
+
+  # Skip invalid country codes (non-alphabetic)
+  if ! echo "$country" | grep -qE '^[a-zA-Z]{2,}$'; then
+    print_red "Skipping invalid country code: $country"
+    continue
+  fi
+
   printf '\nTesting: dry run connect to %s\n' "$country"
   run_and_log "$TPN connect -f \"$country\" --dry | tee connect_${country}.out"
   if grep -qi "DRY RUN" "connect_${country}.out" && ! grep -qi "error" "connect_${country}.out"; then
@@ -222,6 +207,34 @@ for country in $countries; do
     fail_exit
   fi
 done
+
+# Test actual VPN connection to any available server
+printf '\nTesting: connect to 'any' (real connection)\n'
+run_and_log "$TPN connect -f any | tee connect_any.out"
+if grep -qi "IP address changed" connect_any.out && ! grep -qi "error" connect_any.out; then
+  print_green "PASS: connect any (real connection)"
+  add_test_result "connect any" "pass"
+  sleep 10
+else
+  print_red "FAIL: connect any (real connection)"
+  add_test_result "connect any" "fail"
+  fail=1
+  fail_exit
+fi
+
+# Test disconnecting from the VPN and restoring original IP
+printf '\nTesting: disconnect after connect (real disconnect)\n'
+run_and_log "$TPN disconnect | tee disconnect_any.out"
+if grep -qi "IP changed back" disconnect_any.out && ! grep -qi "error" disconnect_any.out; then
+  print_green "PASS: disconnect after connect (real disconnect)"
+  add_test_result "disconnect after connect" "pass"
+else
+  print_red "FAIL: disconnect after connect (real disconnect)"
+  add_test_result "disconnect after connect" "fail"
+  fail=1
+  fail_exit
+fi
+
 
 # Print summary
 printf '\n=== TEST SUMMARY ===\n'

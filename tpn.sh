@@ -9,6 +9,8 @@
 # --------------------
 BASE_URLS="http://161.35.91.172:3000, http://46.16.144.134:3000, http://88.204.136.220:3000, http://34.130.144.244:3000/"
 TIMEOUT=${TIMEOUT:-60}
+RETRY=${RETRY:-5}
+RETRY_DELAY=${RETRY_DELAY:-5}
 TMP_DIR=${TMPDIR:-/tmp}
 INTERFACE_NAME="tpn_config"
 TMP_CONF=""
@@ -171,7 +173,7 @@ EOF
 call_url() {
   url="$1"
   timeout="${2:-$TIMEOUT}"
-  local cmd="curl --retry 5 --retry-delay 5 --max-time $timeout -s \"$url\""
+  local cmd="curl --retry $RETRY --retry-delay $RETRY_DELAY --max-time $timeout -s \"$url\""
   [ "$DEBUG" = true ] && echo "$(date) - $cmd" >> ./calls.out
   resp=$(eval "${cmd[@]}")
   [ "$DEBUG" = true ] && echo "$(date) - response - $resp" >> ./calls.out
@@ -191,6 +193,8 @@ api_request() {
     # Restore IFS and trim whitespace from base URL
     IFS="$old_ifs"
     base=$(printf "%s" "$base" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    # in debug mode log the full URL being called
+    [ "$DEBUG" = true ] && echo "Calling URL: $base$path" >> ./calls.out
     resp=$(call_url "$base$path") && {
       printf "%s" "$resp"
       return 0
@@ -261,6 +265,12 @@ connect() {
         ;;
     esac
   done
+
+  # if country is not a valid country code (2 letters), print error and usage
+  if [ "${#country}" -ne 2 ] && [ "$country" != "any" ]; then
+    red "Error: invalid country code: $country" >&2
+    usage
+  fi
 
   # If country is still "any" and there's a positional argument, use it as country
   if [ "$country" = "any" ] && [ $# -gt 0 ]; then
